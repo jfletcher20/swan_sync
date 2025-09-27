@@ -36,7 +36,9 @@ abstract class SwanSync {
     for (var (adapter: adapter, prototype: prototype) in types) {
       if (!Hive.isAdapterRegistered(adapter.typeId)) Hive.registerAdapter(adapter);
       if (!Hive.isBoxOpen(prototype.tableName))
-        await Hive.openBox<Map<dynamic, dynamic>>(prototype.tableName);
+        await Hive.openBox(
+          prototype.tableName,
+        ); // Open without generic type to allow type adapter serialization
       registeredTypes.add((adapter: adapter, prototype: prototype));
     }
 

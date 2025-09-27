@@ -148,7 +148,7 @@ abstract class Fallback with _RetryTimerMixin, _QueueTypesMixin {
       ISyncable? requestData;
       if (dataJson != null) {
         try {
-          requestData = await SwanSync.database.getItem(prototype.tableName, uuid);
+          requestData = SwanSync.database.getItem(prototype.tableName, uuid);
           if ((type == RequestType.POST || type == RequestType.PUT) && requestData == null) {
             _log('Data for ${type.name} request $uuid not found in local DB, removing from queue');
             return true;
