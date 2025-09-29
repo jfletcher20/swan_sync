@@ -23,6 +23,7 @@ _log(String message) => developer.log(message, name: 'Fallback');
 /// Uses defaultHeaders from Api for all retry requests
 abstract class Fallback with _RetryTimerMixin, _QueueTypesMixin {
   static void init() => _RetryTimerMixin._startRetryTimer(processQueues);
+  static int queueSize = -1;
 
   /// Only disposes resources used by Fallback; does not clear queues.
   /// To clear queues, use [clearAllQueues].
@@ -69,6 +70,7 @@ abstract class Fallback with _RetryTimerMixin, _QueueTypesMixin {
 
       // queue.removeWhere((item) => item['uuid'] == uuid && item['tableName'] == tableName);
       queue.add(queueItem);
+      queueSize = await getTotalQueueSize();
 
       await prefs.setString(queueKey, json.encode(queue));
       _log('Added ${type.name} request for $uuid to ${type.name} queue');
@@ -121,6 +123,7 @@ abstract class Fallback with _RetryTimerMixin, _QueueTypesMixin {
     } catch (e) {
       _log('Error processing fallback queues: $e');
     }
+    queueSize = await getTotalQueueSize();
     _RetryTimerMixin.underway = false;
     return true;
   }
@@ -142,7 +145,9 @@ abstract class Fallback with _RetryTimerMixin, _QueueTypesMixin {
         }
       }
       if (prototype == null) {
-        _log('No registered type found for table: $tableName');
+        _log(
+          'No registered proto found for table: $tableName; available types: ${registeredTypes.map((e) => e.tableName).join(', ')}',
+        );
         return false;
       }
       ISyncable? requestData;

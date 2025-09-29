@@ -83,7 +83,9 @@ class Api {
 
           final modelPrototype = _findPrototypeByTableName(tableName);
           if (modelPrototype == null) {
-            throw ApiException('No registered type found for tableName: $tableName');
+            throw ApiException(
+              'No registered type found for tableName: $tableName; types are ${SwanSync.prototypes.map((e) => e.tableName).join(', ')}',
+            );
           }
 
           items.add(modelPrototype.fromServerData(json));
@@ -123,7 +125,9 @@ class Api {
 
         final modelPrototype = _findPrototypeByTableName(tableName);
         if (modelPrototype == null) {
-          throw ApiException('No registered type found for tableName: $tableName');
+          throw ApiException(
+            'No registered type found for tableName: $tableName; types are ${SwanSync.prototypes.map((e) => e.tableName).join(', ')}',
+          );
         }
 
         final item = modelPrototype.fromServerData(json);
@@ -157,7 +161,9 @@ class Api {
 
         final modelPrototype = _findPrototypeByTableName(tableName);
         if (modelPrototype == null) {
-          throw ApiException('No registered type found for tableName: $tableName');
+          throw ApiException(
+            'No registered type found for tableName: $tableName; types are ${SwanSync.prototypes.map((e) => e.tableName).join(', ')}',
+          );
         }
 
         final createdItem = modelPrototype.fromServerData(responseJson);
@@ -195,7 +201,9 @@ class Api {
 
         final modelPrototype = _findPrototypeByTableName(tableName);
         if (modelPrototype == null) {
-          throw ApiException('No registered type found for tableName: $tableName');
+          throw ApiException(
+            'No registered type found for tableName: $tableName; types are ${SwanSync.prototypes.map((e) => e.tableName).join(', ')}',
+          );
         }
 
         final updatedItem = modelPrototype.fromServerData(responseJson);
@@ -238,24 +246,6 @@ class Api {
     } catch (e) {
       _log('Error deleting item: $e');
       rethrow;
-    }
-  }
-
-  /// Check if the server is reachable for any registered type
-  Future<bool> isServerReachable() async {
-    if (SwanSync.registeredTypes.isEmpty) return false;
-    try {
-      final prototype = SwanSync.prototypes.first;
-      // not ideal to use the getall endpoint, in future could implement a lightweight ping endpoint
-      final response = await Communications.request(
-        prototype,
-        null,
-        "<server reachability check has no UUID>",
-        headers: defaultHeaders,
-      );
-      return response.statusCode < 500;
-    } catch (e) {
-      return false;
     }
   }
 

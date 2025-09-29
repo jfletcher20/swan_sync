@@ -1,7 +1,8 @@
-import 'package:swan_sync/communications/services/local_database.dart';
-import 'package:swan_sync/data/models/data_message_response.dart';
 import 'package:swan_sync/communications/services/api.dart';
+import 'package:swan_sync/communications/services/local_database.dart';
+import 'package:swan_sync/communications/util/fallback/fallback.dart';
 import 'package:swan_sync/data/i_syncable.dart';
+import 'package:swan_sync/data/models/data_message_response.dart';
 import 'package:swan_sync/swan_sync.dart';
 
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -41,8 +42,16 @@ class SyncController {
   }
 
   void triggerFullSync(Timer timer) {
-    _log('Auto-triggering full sync of all tables');
-    fullSyncAllTables(withFallback: false);
+    Fallback.getTotalQueueSize()
+        .then((size) {
+          if (size > 0) return _log('Skipping full sync due to pending fallback queue size: $size');
+          _log('Auto-triggering full sync of all tables');
+          fullSyncAllTables(withFallback: false);
+        })
+        .catchError((e) {
+          _errorLog('Error checking fallback queue size: $e', e, StackTrace.current);
+          fullSyncAllTables(withFallback: false);
+        });
   }
 
   void resetFullSyncTimer() {
@@ -88,7 +97,7 @@ class SyncController {
   Future<void> _handleDeleteFromFcm(DataMessageResponse dataMessage) async {
     try {
       _log('Handling delete from FCM: ${dataMessage.uuid} in ${dataMessage.tableName}');
-      await database.deleteSync(dataMessage.tableName, dataMessage.uuid);
+      await database.delete(dataMessage.tableName, dataMessage.uuid);
     } catch (e) {
       _errorLog('Error handling delete from FCM: $e', e, StackTrace.current);
     }
@@ -199,7 +208,7 @@ class SyncController {
         try {
           _api.delete(localItem, localItem.oid).then((_) {
             _log('Successfully deleted item on server: ${localItem.oid}');
-            database.deleteSync(tableName, uuid);
+            database.delete(tableName, uuid);
           });
         } catch (e) {
           _errorLog('Failed to delete on server: $e, setting flag to deleted', e);
@@ -207,7 +216,7 @@ class SyncController {
         final deletedItem = localItem.copyWith(isDeleted: true, updatedAt: DateTime.now().toUtc());
         await database.updateItem(deletedItem);
       } else {
-        await database.deleteSync(tableName, uuid);
+        await database.delete(tableName, uuid);
         _log('Deleted unsynced item locally: $uuid');
       }
     } catch (e) {
@@ -243,7 +252,7 @@ class SyncController {
       _log('Performing full sync for table: $tableName');
       await syncPendingItems(tableName);
       final prototype = _getPrototypeByTableName(tableName);
-      if (prototype == null) return _log('No prototype found for table: $tableName');
+      if (prototype == null) return _log('No prototype found for this table: $tableName');
       final serverItems = await _api.getAll(prototype, storeFallback: withFallback);
       if (serverItems.isNotEmpty) {
         final result = await database.getAllSync(tableName, serverItems);
@@ -266,9 +275,6 @@ class SyncController {
       _errorLog('Error during full sync of all tables: $e', e, StackTrace.current);
     }
   }
-
-  /// Check if server is reachable
-  Future<bool> isServerReachable() async => await _api.isServerReachable();
 
   /// Clear all data for a specific table
   Future<void> clearTable(String tableName) async => await database.clearTable(tableName);

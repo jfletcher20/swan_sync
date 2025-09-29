@@ -25,32 +25,15 @@ class LocalDatabase {
   /// Find the correct ISyncable prototype by table name
   ISyncable? _findPrototypeByTableName(String table) => SwanSync.prototypeFor(table);
 
-  /// Find the type adapter for a given table name
-  TypeAdapter? _findAdapterByTableName(String table) {
-    return SwanSync.registeredTypes
-        .where((entry) => entry.prototype.tableName == table)
-        .firstOrNull
-        ?.adapter;
-  }
-
   /// Get or create a box for a specific table (keeping original method for compatibility)
   Box<Map<dynamic, dynamic>> _box(String table) => Hive.box<Map<dynamic, dynamic>>(table);
 
   /// Store or update an item in the local database using type adapters
   Future<ISyncable?> _storeItem(ISyncable item) async {
     try {
-      // Try to use the strongly-typed box approach first
-      final adapter = _findAdapterByTableName(item.tableName);
-      if (adapter != null) {
-        // We can store the object directly using its type adapter
-        final box = Hive.box(item.tableName);
-        await box.put(item.uuid, item);
-        return item;
-      } else {
-        // Fallback to the original Map-based approach
-        await _box(item.tableName).put(item.uuid, item.toHiveData());
-        return item;
-      }
+      // Fallback to the original Map-based approach
+      await _box(item.tableName).put(item.uuid, item.toHiveData());
+      return item;
     } catch (e) {
       _errorLog('Error storing item: $e', e, StackTrace.current);
     }
@@ -60,24 +43,16 @@ class LocalDatabase {
   /// Get an item by UUID from a specific table
   ISyncable? getItem(String table, String uuid) {
     try {
-      final adapter = _findAdapterByTableName(table);
-      final box = Hive.box(table);
-      final data = box.get(uuid);
+      final data = _box(table).get(uuid);
 
       if (data == null) return null;
-
-      if (adapter != null && data is ISyncable) {
-        // Direct return if we have a strongly-typed object
-        return data;
-      } else {
-        // Fallback to manual conversion for Map-based storage
-        final prototype = _findPrototypeByTableName(table);
-        if (prototype == null) {
-          _log('No prototype found for table: $table');
-          return null;
-        }
-        return prototype.fromHiveData(Map<String, dynamic>.from(data));
+      // Fallback to manual conversion for Map-based storage
+      final prototype = _findPrototypeByTableName(table);
+      if (prototype == null) {
+        _log('No prototype found for the table: $table');
+        return null;
       }
+      return prototype.fromHiveData(Map<String, dynamic>.from(data));
     } catch (e) {
       _errorLog('Error getting item: $e', e, StackTrace.current);
       return null;
@@ -86,28 +61,15 @@ class LocalDatabase {
 
   ISyncable? getItemById(String table, int oid) {
     try {
-      final adapter = _findAdapterByTableName(table);
-      final box = Hive.box(table);
-
-      if (adapter != null) {
-        // Try to find the item directly if we have a strongly-typed box
-        try {
-          final item = box.values.cast<ISyncable>().firstWhere((item) => item.oid == oid);
-          return item;
-        } catch (e) {
-          return null; // Item not found
-        }
-      } else {
-        // Fallback to Map-based approach
-        final prototype = _findPrototypeByTableName(table);
-        if (prototype == null) {
-          _log('No prototype found for table: $table');
-          return null;
-        }
-        final data = _box(table).values.firstWhere((item) => item['oid'] == oid, orElse: () => {});
-        if (data.isEmpty) return null;
-        return prototype.fromHiveData(Map<String, dynamic>.from(data));
+      // Fallback to Map-based approach
+      final prototype = _findPrototypeByTableName(table);
+      if (prototype == null) {
+        _log('No prototype found for table: $table');
+        return null;
       }
+      final data = _box(table).values.firstWhere((item) => item['oid'] == oid, orElse: () => {});
+      if (data.isEmpty) return null;
+      return prototype.fromHiveData(Map<String, dynamic>.from(data));
     } catch (e) {
       _errorLog('Error getting item: $e', e, StackTrace.current);
       return null;
@@ -115,39 +77,22 @@ class LocalDatabase {
   }
 
   /// Get all items from a specific table (excludes deleted items by default)
-  List<ISyncable> getAllItems(String tableName, {bool includeDeleted = false}) {
+  List<ISyncable> getAllItems(String table, {bool includeDeleted = false}) {
     try {
-      final adapter = _findAdapterByTableName(tableName);
-      final box = Hive.box(tableName);
       final List<ISyncable> items = [];
 
-      if (adapter != null) {
-        // Direct casting for strongly-typed boxes
-        for (final data in box.values) {
-          try {
-            if (data is ISyncable) {
-              if (!includeDeleted && data.isDeleted) continue;
-              items.add(data);
-            }
-          } catch (e) {
-            _errorLog('Error processing strongly-typed item from box: $e', e, StackTrace.current);
-          }
-        }
-      } else {
-        // Fallback to Map-based approach
-        final prototype = _findPrototypeByTableName(tableName);
-        if (prototype == null) {
-          _log('No prototype found for table: $tableName');
-          return [];
-        }
-        for (final data in box.values) {
-          try {
-            final item = prototype.fromHiveData(Map<String, dynamic>.from(data));
-            if (!includeDeleted && item.isDeleted) continue;
-            items.add(item);
-          } catch (e) {
-            _errorLog('Error parsing item from box: $e', e, StackTrace.current);
-          }
+      final prototype = _findPrototypeByTableName(table);
+      if (prototype == null) {
+        _log('No prototype found for: $table');
+        return [];
+      }
+      for (final data in _box(table).values) {
+        try {
+          final item = prototype.fromHiveData(Map<String, dynamic>.from(data));
+          if (!includeDeleted && item.isDeleted) continue;
+          items.add(item);
+        } catch (e) {
+          _errorLog('Error parsing item from box: $e', e, StackTrace.current);
         }
       }
       return items;
@@ -168,7 +113,7 @@ class LocalDatabase {
   }
 
   /// Delete an item (hard delete)
-  Future<void> deleteSync(String tableName, String uuid) async {
+  Future<void> delete(String tableName, String uuid) async {
     try {
       await _box(tableName).delete(uuid);
     } catch (e) {
@@ -205,7 +150,7 @@ class LocalDatabase {
               );
               if (r.statusCode == 200 || r.statusCode == 204) {
                 _log('Successfully deleted ${localItem.oid} on server');
-                await deleteSync(tableName, localItem.uuid);
+                await delete(tableName, localItem.uuid);
                 deletedOnServer++;
               } else {
                 _errorLog(
@@ -223,7 +168,7 @@ class LocalDatabase {
 
       for (final localItem in localItems) {
         if (localItem.oid != -1 && !localItem.isDeleted && !serverUuids.contains(localItem.uuid)) {
-          await deleteSync(tableName, localItem.uuid);
+          await delete(tableName, localItem.uuid);
           deleted++;
           _log('Deleted local item ${localItem.oid} - not found on server');
         }
@@ -327,7 +272,7 @@ class LocalDatabase {
           getAllSync(event.tableName, data.map((json) => prototype.fromServerData(json)));
           break;
         case RequestType.DELETE:
-          deleteSync(event.tableName, event.uuid);
+          delete(event.tableName, event.uuid);
           break;
       }
     });
